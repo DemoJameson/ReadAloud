@@ -66,11 +66,21 @@
 
     <a-textarea
         style="margin-top: 10px"
-        placeholder="输入需要朗读的文字"
+        placeholder="已经朗读的弹幕"
+        :value="readTextLog"
+        @input="onInputReadTextLog"
+        class="a-textarea"
+        :rows="8"
+    >
+    </a-textarea>
+
+    <a-textarea
+        style="margin-top: 10px"
+        placeholder="输入需要测试朗读的文字"
         :value="inputText"
         @input="onInput"
         class="a-textarea"
-        :rows="10"
+        :rows="1"
     >
     </a-textarea>
 
@@ -92,8 +102,6 @@
         <a-button type="primary" id="play" @click="onClick">播放</a-button>
         <!-- <a-button type="primary" @click="test">恢复</a-button> -->
         <!-- <a-button type="primary" @click="voiceResume">暂停</a-button> -->
-
-
       </a-col>
       <!-- <a-col :span="3">
         <a-switch default-checked checked-children="录" un-checked-children="" @change="onChange" />
@@ -143,12 +151,12 @@
       </a-col>
     </a-row>
 
-<!--    <a-row type="flex" justify="space-between" align="middle" class="pb10">-->
-<!--      <a-col class="flex-wrap">-->
-<!--        <p class="text-lf fweight-bold letter2 pl5 pb10" style="margin-right:10px;">开启录音 (record)</p>-->
-<!--        <a-switch :checked="recordStatus" @change="onChange"/>-->
-<!--      </a-col>-->
-<!--    </a-row>-->
+    <!--    <a-row type="flex" justify="space-between" align="middle" class="pb10">-->
+    <!--      <a-col class="flex-wrap">-->
+    <!--        <p class="text-lf fweight-bold letter2 pl5 pb10" style="margin-right:10px;">开启录音 (record)</p>-->
+    <!--        <a-switch :checked="recordStatus" @change="onChange"/>-->
+    <!--      </a-col>-->
+    <!--    </a-row>-->
     <a class="link" @click="push">查看 Github 项目源码</a>
   </div>
 </template>
@@ -274,6 +282,24 @@ var utterThis;
 var ws;
 var intervalId;
 
+// userName, giftName, num, timeoutId
+let giftMessageQueue = [];
+
+let filters = [
+  /^www$/,
+  // 全文不包含中文英文数字，可能是颜文字
+  /^[^\w\u4e00-\u9fa5]+$/
+];
+
+function filterDanmu(message) {
+  return message.length < 2 || filters.some(exp => message.match(exp));
+}
+
+function optimizeDanmu(message) {
+  return message.replace(/(?<!\d)233+(?!\d)/g, function (s) {
+    return "二".padEnd(s.length - 1, "三")
+  })
+}
 
 // if (navigator.serviceWorker) {
 //   navigator.serviceWorker.register('./sw.js')
@@ -301,6 +327,7 @@ export default {
       defaultSelect: "选择朗读语言类型",
       speedSelect: "x1",
       inputText: "",
+      readTextLog: "",
       roomId: 10921,
       selectIdx: 0,
       selectVoice: {},
@@ -342,6 +369,14 @@ export default {
   mounted() {
     this.populateVoiceList();
     this.checkBrowser();
+    if (localStorage.roomId) {
+      this.roomId = localStorage.roomId;
+    }
+  },
+  watch: {
+    roomId(newRoomId) {
+      localStorage.roomId = newRoomId;
+    }
   },
   updated() {
   },
@@ -356,18 +391,12 @@ export default {
       new Promise((resolve, reject) => {
         setTimeout(() => {
           let voices = speechSynthesis.getVoices();
-          // console.log(voices)
 
           resolve(voices);
         }, 0);
       }).then((voices) => {
         this.voices = voices
-            // .filter((c) => {
-            //   return /^(Microsoft|Google) /.test(c.name);
-            // })
             .map((c) => {
-              // console.log(c)
-
               if (c.name.startsWith("Google ")) {
                 c.displayName = c.name.replace(/^Google /, "");
               } else if (c.name.startsWith("Microsoft")) {
@@ -396,7 +425,8 @@ export default {
       if (!this.inputText || this.inputText.length === 0) {
         return;
       }
-      this.speak();
+
+      this.speak(this.inputText);
     },
     onConnect() {
       if (ws) {
@@ -426,51 +456,76 @@ export default {
             break;
           case 5:
             packet.body.forEach((msg) => {
-                switch (msg.cmd) {
+              console.log(msg);
+              switch (msg.cmd) {
                   // 普通弹幕
-                  case 'DANMU_MSG':
-                    if (this.readDanmu) {
-                      if (this.readRate > Math.round(Math.random() * 100)) {
-                        // TODO 过滤纯字符弹幕
-                        this.inputText = `${msg.info[2][1]}说: ${msg.info[1]}`;
-                        this.speak();
+                case 'DANMU_MSG':
+                  if (this.readDanmu) {
+                    let userName = msg.info[2][1].replace(/_*bili_*/g, "");
+                    let message = msg.info[1];
+                    let text = `${userName}说: ${message}`;
+                    if (this.readRate >= Math.round(Math.random() * 100)) {
+                      if (filterDanmu(message)) {
+                        console.log(`无意义被过滤的弹幕：${text}`);
                       } else {
-                        console.log(`忽略弹幕：${msg.info[2][1]}: ${msg.info[1]}`);
+                        text = optimizeDanmu(text);
+                        this.speak(text);
                       }
+                    } else {
+                      console.log(`因为朗读概率忽略的弹幕：${text}`);
                     }
-                    break;
+                  }
+                  break;
                   // 醒目留言（我也不知道是啥东西）
-                  case 'SUPER_CHAT_MESSAGE':
-                  case 'SUPER_CHAT_MESSAGE_JPN':
-                    if (this.readDanmu) {
-                      this.inputText = `收到来自${msg.data.user_info.uname}的醒目留言：${msg.data.message}`;
-                      this.speak();
-                    }
-                    break;
+                case 'SUPER_CHAT_MESSAGE':
+                case 'SUPER_CHAT_MESSAGE_JPN':
+                  if (this.readDanmu) {
+                    let text = `收到来自${msg.data.user_info.uname}的醒目留言：${msg.data.message}`;
+                    this.speak(text);
+                  }
+                  break;
                   // 礼物
-                  case 'SEND_GIFT':
-                    if (this.readGift) {
-                      // 合并近期的礼物
-                      this.inputText = `收到来自${msg.data.uname}的${msg.data.num}个${msg.data.giftName}`;
-                      this.speak();
+                case 'SEND_GIFT':
+                  if (this.readGift) {
+                    let userName = msg.data.uname;
+                    let giftName = msg.data.giftName;
+                    let num = msg.data.num;
+                    let text = `收到来自${userName}的${num}个${giftName}`;
+                    let giftMessage = giftMessageQueue.find(e => e.userName === userName && e.giftName === giftName);
+                    if (giftMessage) {
+                      clearTimeout(giftMessage.timeoutId);
+                      giftMessage.num += num;
+                      text = `收到来自${userName}的${giftMessage.num}个${giftName}`;
+                      console.log(`合并礼物信息：${text}`);
+                    } else {
+                      giftMessage = {
+                        userName: userName,
+                        giftName: giftName,
+                        num: num
+                      };
+                      giftMessageQueue.push(giftMessage);
                     }
-                    break;
+                    giftMessage.timeoutId = setTimeout(() => {
+                      this.speak(text);
+                      giftMessageQueue = giftMessageQueue.filter(e => e !== giftMessage);
+                    }, 5000);
+                  }
+                  break;
                   // 上舰
-                  case 'GUARD_BUY':
-                    this.inputText = `欢迎加入${msg.data.username}大航海`;
-                    this.speak();
-                    break;
+                case 'GUARD_BUY':
+                  // eslint-disable-next-line no-case-declarations
+                  let text = `欢迎加入${msg.data.username}大航海`;
+                  this.speak(text);
+                  break;
                   // 欢迎老爷和舰长
-                  case 'WELCOME':
-                    if (this.readWelcome) {
-                      this.inputText = `欢迎${msg.data.uname}`;
-                      this.speak();
-                    }
-                    break;
-                    // 此处省略很多其他通知类型
-                  default:
-                    console.log(msg);
-                }
+                case 'WELCOME':
+                  if (this.readWelcome) {
+                    let text = `欢迎${msg.data.uname}`;
+                    this.speak(text);
+                  }
+                  break;
+                  // 此处省略很多其他通知类型
+              }
             })
             break;
           default:
@@ -491,6 +546,9 @@ export default {
     onInput(e) {
       this.inputText = e.target.value;
     },
+    onInputReadTextLog(e) {
+      this.readTextLog = e.target.value;
+    },
     onInputRoomId(e) {
       this.roomId = e.target.value;
     },
@@ -498,23 +556,29 @@ export default {
     onSelect(index) {
       this.selectIdx = index;
     },
-    speak() {
+    speak(text) {
       let {
         voices,
         selectIdx,
-        inputText,
         rateValue,
         pitchValue
       } = this;
-      utterThis = new SpeechSynthesisUtterance(inputText);
-      utterThis.onend = function (event) {
-        console.log("SpeechSynthesisUtterance.onend");
 
-        // play.textContent = '► Play'
+      // if (filterDanmu(text)) {
+      //   console.log("过滤弹幕" + text);
+      //   return;
+      // }
+      //
+      // text = optimizeDanmu(text);
+
+      this.readTextLog = `${new Date().toLocaleTimeString()}\t${text}\n${this.readTextLog}`;
+
+      utterThis = new SpeechSynthesisUtterance(text);
+      utterThis.onstart = function (event) {
+        console.log(`SpeechSynthesisUtterance.onstart: ${text}`);
       };
-
       utterThis.onerror = function (event) {
-        console.error("SpeechSynthesisUtterance.onerror");
+        console.error(`SpeechSynthesisUtterance.onerror: ${text}`);
       };
       utterThis.voice = voices[selectIdx]; // 设置说话的声音
       utterThis.pitch = pitchValue; // 设置音调高低
@@ -592,6 +656,8 @@ export default {
       console.log('录音中...')
 
     },
-  },
-};
+  }
+  ,
+}
+;
 </script>

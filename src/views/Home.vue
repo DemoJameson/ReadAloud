@@ -54,7 +54,6 @@
               @change="onReadRateSlider"
               :included="false"
               :value="readRate"
-              :default-value="readRate"
           />
         </div>
       </a-col>
@@ -114,9 +113,26 @@
               @change="onRateSlider"
               :included="false"
               :value="rateValue"
-              :default-value="rateValue"
           />
-          <!-- <RedoOutlined /> -->
+        </div>
+      </a-col>
+    </a-row>
+
+    <a-row type="flex" justify="space-between" align="middle" class="pb5 pt10 mt20">
+      <a-col :span="24">
+        <div class="text-lf">
+          <span class="fweight-bold letter2 pl5">播放音量 (rate)</span>
+          <span class="letter2 pl10" style="color:#999;font-size:12px">当前 {{ volumeValue }}</span>
+        </div>
+        <div style="padding-left: 10px" touch-action="none">
+          <a-slider
+              :step="1"
+              :min="1"
+              :max="100"
+              @change="onVolumeSlider"
+              :included="false"
+              :value="volumeValue"
+          />
         </div>
       </a-col>
     </a-row>
@@ -127,7 +143,6 @@
           <span class="text-lf fweight-bold letter2 pl5">音调调整 (pitch)</span>
           <span class="letter2 pl10" style="color:#999;font-size:12px">当前{{ pitchValue }}</span>
         </div>
-
         <div style="padding-left: 10px" touch-action="none">
           <a-slider
               :marks="pitchMarks"
@@ -136,7 +151,6 @@
               :max="maxPitch"
               @change="onPitchSlider"
               :included="false"
-              :default-value="pitchValue"
           />
         </div>
       </a-col>
@@ -269,7 +283,7 @@ const decode = function (blob) {
 
 var synth = window.speechSynthesis;
 var matches;
-var utterThis;
+var utterance;
 var ws;
 var intervalId;
 
@@ -291,7 +305,7 @@ function filterDanmu(message) {
 
 function optimizeDanmu(message) {
   return message.replace(/(?<!\d)233+(?!\d)/g, function (s) {
-    return "二".padEnd(s.length - 1, "三")
+    return "二".padEnd(s.length, "三")
   })
 }
 
@@ -340,6 +354,9 @@ export default {
         2: "快",
       },
 
+      // 音量
+      volumeValue: 100,
+
       // 朗读概率
       readRate: 100,
 
@@ -382,25 +399,31 @@ export default {
     if (localStorage.rateValue) {
       this.rateValue = parseFloat(localStorage.rateValue);
     }
+    if (localStorage.volumeValue) {
+      this.volumeValue = parseInt(localStorage.volumeValue);
+    }
   },
   watch: {
-    roomId(newRoomId) {
-      localStorage.roomId = newRoomId;
+    roomId(newValue) {
+      localStorage.roomId = newValue;
     },
-    readDanmu(newReadDanmu) {
-      localStorage.readDanmu = newReadDanmu;
+    readDanmu(newValue) {
+      localStorage.readDanmu = newValue;
     },
-    readGift(newReadGift) {
-      localStorage.readGift = newReadGift;
+    readGift(newValue) {
+      localStorage.readGift = newValue;
     },
-    readWelcome(newReadWelcome) {
-      localStorage.readWelcome = newReadWelcome;
+    readWelcome(newValue) {
+      localStorage.readWelcome = newValue;
     },
-    readRate(newReadRate) {
-      localStorage.readRate = newReadRate;
+    readRate(newValue) {
+      localStorage.readRate = newValue;
     },
-    rateValue(newRateValue) {
-      localStorage.rateValue = newRateValue;
+    rateValue(newValue) {
+      localStorage.rateValue = newValue;
+    },
+    volumeValue(newValue) {
+      localStorage.volumeValue = newValue;
     }
   },
   updated() {
@@ -584,6 +607,8 @@ export default {
       if (ws) {
         ws.close();
         clearInterval(intervalId);
+        giftMessageQueue.forEach(msg => clearTimeout(msg.timeoutId));
+        giftMessageQueue.length = 0;
         synth.cancel();
         this.speak("断开房间：" + this.roomId.replace("https://live.bilibili.com/", ""));
       }
@@ -609,6 +634,7 @@ export default {
         voices,
         selectIdx,
         rateValue,
+        volumeValue,
         pitchValue
       } = this;
 
@@ -621,17 +647,19 @@ export default {
 
       this.readTextLog = `${new Date().toLocaleTimeString()}\t${text}\n${this.readTextLog}`;
 
-      utterThis = new SpeechSynthesisUtterance(text);
-      utterThis.onstart = function (event) {
+      utterance = new SpeechSynthesisUtterance(text);
+      utterance.onstart = function (event) {
         console.log(`SpeechSynthesisUtterance.onstart: ${text}`);
       };
-      utterThis.onerror = function (event) {
+      utterance.onerror = function (event) {
         console.error(`SpeechSynthesisUtterance.onerror: ${text}`);
       };
-      utterThis.voice = voices[selectIdx]; // 设置说话的声音
-      utterThis.pitch = pitchValue; // 设置音调高低
-      utterThis.rate = rateValue; // 设置说话的速度
-      synth.speak(utterThis);
+      utterance.voice = voices[selectIdx]; // 设置语音引擎
+      utterance.pitch = pitchValue;
+      utterance.rate = rateValue;
+      utterance.volume = volumeValue / 100.0;
+      console.log(volumeValue / 100.0);
+      synth.speak(utterance);
     },
     onChange(value) {
       console.log("change: ", value);
@@ -662,11 +690,14 @@ export default {
     },
     // 改变语音速度
     onRateSlider(e) {
-      this.rateValue = e
+      this.rateValue = e;
+    },
+    onVolumeSlider(e) {
+      this.volumeValue = e;
     },
     // 改变音调高低
     onPitchSlider(e) {
-      this.pitchValue = e
+      this.pitchValue = e;
     },
     checkBrowser() {
       // console.log('userAgent: '+window.navigator.userAgent)

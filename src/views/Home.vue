@@ -1,15 +1,10 @@
 <template>
   <div class="home">
-    <!-- <img alt="Vue logo" src="../assets/logo.png">
-    <HelloWorld msg="第一个wpa应用"/> -->
     <p style="font-size: 20px; font-weight: bold">大声朗读</p>
     <p style="margin-bottom: 30px; color: #999">
       基于微软 Edge 浏览器大声朗读功能开发的 PWA 应用
     </p>
-    <!-- <textarea name="" id="" v-model="value" cols="30" rows="10"></textarea> -->
-    <!-- <input id="rate" class="flex-fill" type="range" min="0.5" max="1.5" value="1" step="0.01"> -->
-    <!-- <select id="voiceSelect" class="col-9"></select> -->
-    <!-- <button id="play" @click="onClick">播放</button> -->
+
     <p class="text-lf pb5 fweight-bold letter2 pl5 mt30">B站直播间 ID</p>
     <a-row type="flex" justify="space-between" align="middle">
       <a-col :span="17">
@@ -99,14 +94,9 @@
           </a-select-option>
         </a-select>
       </a-col>
-      <a-col :span="5">
+      <a-col :span="3">
         <a-button type="primary" id="play" @click="onClick">播放</a-button>
-        <!-- <a-button type="primary" @click="test">恢复</a-button> -->
-        <!-- <a-button type="primary" @click="voiceResume">暂停</a-button> -->
       </a-col>
-      <!-- <a-col :span="3">
-        <a-switch default-checked checked-children="录" un-checked-children="" @change="onChange" />
-      </a-col> -->
     </a-row>
 
     <a-row type="flex" justify="space-between" align="middle" class="pb5 pt10 mt20">
@@ -138,7 +128,6 @@
           <span class="letter2 pl10" style="color:#999;font-size:12px">当前{{ pitchValue }}</span>
         </div>
 
-        <!-- <a-slider id="test" v-model="value1" :disabled="disabled" /> -->
         <div style="padding-left: 10px" touch-action="none">
           <a-slider
               :marks="pitchMarks"
@@ -284,6 +273,9 @@ var utterThis;
 var ws;
 var intervalId;
 
+// 天玄之人弹幕，过滤用
+let anchorLotDanmu = {}
+
 // userName, giftName, num, timeoutId
 let giftMessageQueue = [];
 
@@ -294,7 +286,7 @@ let filters = [
 ];
 
 function filterDanmu(message) {
-  return message.length < 2 || filters.some(exp => message.match(exp));
+  return message.length < 2 || filters.some(exp => message.match(exp)) || Object.values(anchorLotDanmu).includes(message);
 }
 
 function optimizeDanmu(message) {
@@ -496,8 +488,18 @@ export default {
             packet.body.forEach((msg) => {
               console.log(msg);
               switch (msg.cmd) {
-                  // 普通弹幕
+                case 'ANCHOR_LOT_START':
+                  // 天选之人开始
+                  anchorLotDanmu[msg.data.id] = msg.data.danmu;
+                  console.log("天选之人开始，弹幕：" + msg.data.danmu);
+                  break;
+                case 'ANCHOR_LOT_END':
+                  // 天选之人结束
+                  console.log("天选之人结束，弹幕：" + anchorLotDanmu[msg.data.id]);
+                  anchorLotDanmu[msg.data.id] = undefined;
+                  break;
                 case 'DANMU_MSG':
+                  // 普通弹幕
                   if (this.readDanmu) {
                     let userName = msg.info[2][1].replace(/_*bili_*/g, "");
                     let message = msg.info[1];
@@ -514,16 +516,23 @@ export default {
                     }
                   }
                   break;
-                  // 醒目留言（我也不知道是啥东西）
                 case 'SUPER_CHAT_MESSAGE':
                 case 'SUPER_CHAT_MESSAGE_JPN':
+                  // 醒目留言（我也不知道是啥东西）
                   if (this.readDanmu) {
                     let text = `收到来自${msg.data.user_info.uname}的醒目留言：${msg.data.message}`;
                     this.speak(text);
                   }
                   break;
-                  // 礼物
+                case 'USER_TOAST_MSG':
+                  // 续费舰长？
+                  if (this.readDanmu) {
+                    let text = msg.data.toast_msg.replace("<%", "").replace("%>", "");
+                    this.speak(text);
+                  }
+                  break;
                 case 'SEND_GIFT':
+                  // 礼物
                   if (this.readGift) {
                     let userName = msg.data.uname;
                     let giftName = msg.data.giftName;
@@ -552,7 +561,7 @@ export default {
                   // 上舰
                 case 'GUARD_BUY':
                   // eslint-disable-next-line no-case-declarations
-                  let text = `欢迎加入${msg.data.username}大航海`;
+                  let text = `欢迎${msg.data.username}加入大航海`;
                   this.speak(text);
                   break;
                   // 欢迎老爷和舰长

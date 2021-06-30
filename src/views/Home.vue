@@ -58,6 +58,7 @@
               :max="100"
               @change="onReadRateSlider"
               :included="false"
+              :value="readRate"
               :default-value="readRate"
           />
         </div>
@@ -122,6 +123,7 @@
               :max="maxRate"
               @change="onRateSlider"
               :included="false"
+              :value="rateValue"
               :default-value="rateValue"
           />
           <!-- <RedoOutlined /> -->
@@ -157,7 +159,7 @@
     <!--        <a-switch :checked="recordStatus" @change="onChange"/>-->
     <!--      </a-col>-->
     <!--    </a-row>-->
-    <a class="link" @click="push">查看 Github 项目源码</a>
+    <a class="link" href="https://github.com/demojameson/ReadAloud">查看 Github 项目源码</a>
   </div>
 </template>
 <style scoped>
@@ -328,7 +330,7 @@ export default {
       speedSelect: "x1",
       inputText: "",
       readTextLog: "",
-      roomId: 10921,
+      roomId: "",
       selectIdx: 0,
       selectVoice: {},
 
@@ -346,6 +348,7 @@ export default {
         2: "快",
       },
 
+      // 朗读概率
       readRate: 100,
 
       // 音调高低
@@ -372,10 +375,40 @@ export default {
     if (localStorage.roomId) {
       this.roomId = localStorage.roomId;
     }
+    if (localStorage.readDanmu) {
+      this.readDanmu = localStorage.readDanmu === 'true';
+    }
+    if (localStorage.readGift) {
+      this.readGift = localStorage.readGift === 'true';
+    }
+    if (localStorage.readWelcome) {
+      this.readWelcome = localStorage.readWelcome === 'true';
+    }
+    if (localStorage.readRate) {
+      this.readRate = parseInt(localStorage.readRate);
+    }
+    if (localStorage.rateValue) {
+      this.rateValue = parseFloat(localStorage.rateValue);
+    }
   },
   watch: {
     roomId(newRoomId) {
       localStorage.roomId = newRoomId;
+    },
+    readDanmu(newReadDanmu) {
+      localStorage.readDanmu = newReadDanmu;
+    },
+    readGift(newReadGift) {
+      localStorage.readGift = newReadGift;
+    },
+    readWelcome(newReadWelcome) {
+      localStorage.readWelcome = newReadWelcome;
+    },
+    readRate(newReadRate) {
+      localStorage.readRate = newReadRate;
+    },
+    rateValue(newRateValue) {
+      localStorage.rateValue = newRateValue;
     }
   },
   updated() {
@@ -414,7 +447,10 @@ export default {
               let bName = b.displayName.replace(/^.+-/, "");
               return aName.localeCompare(bName);
             });
-        this.selectIdx = Math.max(0, this.voices.findIndex((c) => c.displayName.includes("Xiaoxiao")));
+        let xiaoxiaoIndex = this.voices.findIndex((c) => c.displayName.includes("Xiaoxiao"));
+        if (xiaoxiaoIndex >= 0) {
+          this.selectIdx = xiaoxiaoIndex;
+        }
       });
     },
     test() {
@@ -435,10 +471,12 @@ export default {
       }
       ws = new WebSocket('wss://broadcastlv.chat.bilibili.com/sub');
       ws.onopen = () => {
-        console.log("connect roomid: " + this.roomId);
+        let roomId = this.roomId.replace("https://live.bilibili.com/", "");
         ws.send(encode(JSON.stringify({
-          roomid: parseInt(this.roomId)
+          roomid: parseInt(roomId)
         }), 7));
+        console.log("connect roomid: " + roomId);
+        this.speak("连接房间：" + roomId);
       };
       intervalId = setInterval(function () {
         ws.send(encode('', 2));
@@ -538,6 +576,7 @@ export default {
         ws.close();
         clearInterval(intervalId);
         synth.cancel();
+        this.speak("断开房间：" + this.roomId.replace("https://live.bilibili.com/", ""));
       }
     },
     onReadRateSlider(e) {
@@ -622,10 +661,6 @@ export default {
     },
     checkBrowser() {
       // console.log('userAgent: '+window.navigator.userAgent)
-    },
-    // 跳转至 github仓库地址
-    push() {
-      window.location.href = "https://github.com/demojameson/ReadAloud"
     },
 
     // 新建 MediaRecorder对象

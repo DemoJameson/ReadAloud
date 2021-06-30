@@ -19,5 +19,5 @@
 
 #### 在线预览
 
-项目已经部署在Github Page，[点此查看](https://guozhigq.github.io/ReadAloud/#/)
+项目已经部署在Github Page，[点此查看](https://demojameson.github.io/ReadAloud/#/)
 

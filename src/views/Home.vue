@@ -5,11 +5,11 @@
       基于微软 Edge 浏览器大声朗读功能开发的 PWA 应用
     </p>
 
-    <p class="text-lf pb5 fweight-bold letter2 pl5 mt30">B站直播间 ID</p>
+    <p class="text-lf pb5 fweight-bold letter2 pl5 mt30">B站直播间号</p>
     <a-row type="flex" justify="space-between" align="middle">
       <a-col :span="17">
         <a-input
-            placeholder="直播间ID"
+            placeholder="直播间号"
             :value="roomId"
             @input="onInputRoomId"
         >
@@ -149,6 +149,7 @@
               :step="0.1"
               :min="minPitch"
               :max="maxPitch"
+              :value="pitchValue"
               @change="onPitchSlider"
               :included="false"
           />
@@ -484,124 +485,133 @@ export default {
         ws.close();
         clearInterval(intervalId);
       }
-      ws = new WebSocket('wss://broadcastlv.chat.bilibili.com/sub');
-      ws.onopen = () => {
-        let roomId = this.roomId.replace("https://live.bilibili.com/", "");
-        ws.send(encode(JSON.stringify({
-          roomid: parseInt(roomId)
-        }), 7));
-        console.log("connect roomid: " + roomId);
-        this.speak("连接房间：" + roomId);
-      };
-      intervalId = setInterval(function () {
-        ws.send(encode('', 2));
-      }, 30000);
-      ws.onmessage = async msgEvent => {
-        const packet = await decode(msgEvent.data);
-        switch (packet.op) {
-          case 8:
-            console.log('加入房间');
-            break;
-          case 3:
-            // eslint-disable-next-line no-case-declarations
-            const count = packet.body.count;
-            console.log(`人气：${count}`);
-            break;
-          case 5:
-            packet.body.forEach((msg) => {
-              console.log(msg);
-              switch (msg.cmd) {
-                case 'ANCHOR_LOT_START':
-                  // 天选之人开始
-                  anchorLotDanmu[msg.data.id] = msg.data.danmu;
-                  console.log("天选之人开始，弹幕：" + msg.data.danmu);
-                  break;
-                case 'ANCHOR_LOT_END':
-                  // 天选之人结束
-                  console.log("天选之人结束，弹幕：" + anchorLotDanmu[msg.data.id]);
-                  anchorLotDanmu[msg.data.id] = undefined;
-                  break;
-                case 'DANMU_MSG':
-                  // 普通弹幕
-                  if (this.readDanmu) {
-                    let userName = msg.info[2][1].replace(/_*bili_*/g, "");
-                    let message = msg.info[1];
-                    let text = `${userName}说: ${message}`;
-                    if (this.readRate >= Math.round(Math.random() * 100)) {
-                      if (filterDanmu(message)) {
-                        console.log(`无意义被过滤的弹幕：${text}`);
+      let roomId = this.roomId.replace("https://live.bilibili.com/", "");
+      let biliApi = encodeURIComponent(`http://api.live.bilibili.com/room/v1/Room/room_init?id=${roomId}`);
+      fetch(`https://json2jsonp.com/?url=${biliApi}&callback=result`).then(function (response) {
+        return response.text();
+      }).then(jsonp => {
+        let json = jsonp.replace(/^result\((.+)\)$/, "$1");
+        let body = JSON.parse(json);
+        console.log(`roomId 从 ${roomId} 转为 ${body.data.room_id}`);
+        let realRoomId = body.data.room_id;
+        ws = new WebSocket('wss://broadcastlv.chat.bilibili.com/sub');
+        ws.onopen = () => {
+          ws.send(encode(JSON.stringify({
+            roomid: parseInt(realRoomId)
+          }), 7));
+          console.log("connect roomid: " + roomId);
+          this.speak("连接房间：" + roomId);
+        };
+        intervalId = setInterval(function () {
+          ws.send(encode('', 2));
+        }, 30000);
+        ws.onmessage = async msgEvent => {
+          const packet = await decode(msgEvent.data);
+          switch (packet.op) {
+            case 8:
+              console.log('加入房间');
+              break;
+            case 3:
+              // eslint-disable-next-line no-case-declarations
+              const count = packet.body.count;
+              console.log(`人气：${count}`);
+              break;
+            case 5:
+              packet.body.forEach((msg) => {
+                console.log(msg);
+                switch (msg.cmd) {
+                  case 'ANCHOR_LOT_START':
+                    // 天选之人开始
+                    anchorLotDanmu[msg.data.id] = msg.data.danmu;
+                    console.log("天选之人开始，弹幕：" + msg.data.danmu);
+                    break;
+                  case 'ANCHOR_LOT_END':
+                    // 天选之人结束
+                    console.log("天选之人结束，弹幕：" + anchorLotDanmu[msg.data.id]);
+                    anchorLotDanmu[msg.data.id] = undefined;
+                    break;
+                  case 'DANMU_MSG':
+                    // 普通弹幕
+                    if (this.readDanmu) {
+                      let userName = msg.info[2][1].replace(/_*bili_*/g, "");
+                      let message = msg.info[1];
+                      let text = `${userName}说: ${message}`;
+                      if (this.readRate >= Math.round(Math.random() * 100)) {
+                        if (filterDanmu(message)) {
+                          console.log(`无意义被过滤的弹幕：${text}`);
+                        } else {
+                          text = optimizeDanmu(text);
+                          this.speak(text);
+                        }
                       } else {
-                        text = optimizeDanmu(text);
-                        this.speak(text);
+                        console.log(`因为朗读概率忽略的弹幕：${text}`);
                       }
-                    } else {
-                      console.log(`因为朗读概率忽略的弹幕：${text}`);
                     }
-                  }
-                  break;
-                case 'SUPER_CHAT_MESSAGE':
-                case 'SUPER_CHAT_MESSAGE_JPN':
-                  // 醒目留言（我也不知道是啥东西）
-                  if (this.readDanmu) {
-                    let text = `收到来自${msg.data.user_info.uname}的醒目留言：${msg.data.message}`;
-                    this.speak(text);
-                  }
-                  break;
-                case 'USER_TOAST_MSG':
-                  // 续费舰长？
-                  if (this.readDanmu) {
-                    let text = msg.data.toast_msg.replace("<%", "").replace("%>", "");
-                    this.speak(text);
-                  }
-                  break;
-                case 'SEND_GIFT':
-                  // 礼物
-                  if (this.readGift) {
-                    let userName = msg.data.uname;
-                    let giftName = msg.data.giftName;
-                    let num = msg.data.num;
-                    let text = `收到来自${userName}的${num}个${giftName}`;
-                    let giftMessage = giftMessageQueue.find(e => e.userName === userName && e.giftName === giftName);
-                    if (giftMessage) {
-                      clearTimeout(giftMessage.timeoutId);
-                      giftMessage.num += num;
-                      text = `收到来自${userName}的${giftMessage.num}个${giftName}`;
-                      console.log(`合并礼物信息：${text}`);
-                    } else {
-                      giftMessage = {
-                        userName: userName,
-                        giftName: giftName,
-                        num: num
-                      };
-                      giftMessageQueue.push(giftMessage);
-                    }
-                    giftMessage.timeoutId = setTimeout(() => {
+                    break;
+                  case 'SUPER_CHAT_MESSAGE':
+                  case 'SUPER_CHAT_MESSAGE_JPN':
+                    // 醒目留言（我也不知道是啥东西）
+                    if (this.readDanmu) {
+                      let text = `收到来自${msg.data.user_info.uname}的醒目留言：${msg.data.message}`;
                       this.speak(text);
-                      giftMessageQueue = giftMessageQueue.filter(e => e !== giftMessage);
-                    }, 5000);
-                  }
-                  break;
-                  // 上舰
-                case 'GUARD_BUY':
-                  // eslint-disable-next-line no-case-declarations
-                  let text = `欢迎${msg.data.username}加入大航海`;
-                  this.speak(text);
-                  break;
-                  // 欢迎老爷和舰长
-                case 'WELCOME':
-                  if (this.readWelcome) {
-                    let text = `欢迎${msg.data.uname}`;
+                    }
+                    break;
+                  case 'USER_TOAST_MSG':
+                    // 续费舰长？
+                    if (this.readDanmu) {
+                      let text = msg.data.toast_msg.replace("<%", "").replace("%>", "");
+                      this.speak(text);
+                    }
+                    break;
+                  case 'SEND_GIFT':
+                    // 礼物
+                    if (this.readGift) {
+                      let userName = msg.data.uname;
+                      let giftName = msg.data.giftName;
+                      let num = msg.data.num;
+                      let text = `收到来自${userName}的${num}个${giftName}`;
+                      let giftMessage = giftMessageQueue.find(e => e.userName === userName && e.giftName === giftName);
+                      if (giftMessage) {
+                        clearTimeout(giftMessage.timeoutId);
+                        giftMessage.num += num;
+                        text = `收到来自${userName}的${giftMessage.num}个${giftName}`;
+                        console.log(`合并礼物信息：${text}`);
+                      } else {
+                        giftMessage = {
+                          userName: userName,
+                          giftName: giftName,
+                          num: num
+                        };
+                        giftMessageQueue.push(giftMessage);
+                      }
+                      giftMessage.timeoutId = setTimeout(() => {
+                        this.speak(text);
+                        giftMessageQueue = giftMessageQueue.filter(e => e !== giftMessage);
+                      }, 5000);
+                    }
+                    break;
+                    // 上舰
+                  case 'GUARD_BUY':
+                    // eslint-disable-next-line no-case-declarations
+                    let text = `欢迎${msg.data.username}加入大航海`;
                     this.speak(text);
-                  }
-                  break;
-                  // 此处省略很多其他通知类型
-              }
-            })
-            break;
-          default:
-            console.log(packet);
-        }
-      };
+                    break;
+                    // 欢迎老爷和舰长
+                  case 'WELCOME':
+                    if (this.readWelcome) {
+                      let text = `欢迎${msg.data.uname}`;
+                      this.speak(text);
+                    }
+                    break;
+                    // 此处省略很多其他通知类型
+                }
+              })
+              break;
+            default:
+              console.log(packet);
+          }
+        };
+      });
     },
     onDisconnect(e) {
       if (ws) {
@@ -658,7 +668,6 @@ export default {
       utterance.pitch = pitchValue;
       utterance.rate = rateValue;
       utterance.volume = volumeValue / 100.0;
-      console.log(volumeValue / 100.0);
       synth.speak(utterance);
     },
     onChange(value) {

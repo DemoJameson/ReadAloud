@@ -52,7 +52,6 @@
               :min="0"
               :max="100"
               @change="onReadRateSlider"
-              :included="false"
               :value="readRate"
           />
         </div>
@@ -93,15 +92,33 @@
           </a-select-option>
         </a-select>
       </a-col>
-      <a-col :span="3">
-        <a-button type="primary" id="play" @click="onClick">播放</a-button>
+      <a-col :span="4">
+        <a-button type="primary" id="play" @click="onClick">播放测试</a-button>
       </a-col>
     </a-row>
 
     <a-row type="flex" justify="space-between" align="middle" class="pb5 pt10 mt20">
       <a-col :span="24">
         <div class="text-lf">
-          <span class="fweight-bold letter2 pl5">播放速度 (rate)</span>
+          <span class="fweight-bold letter2 pl5">播放音量</span>
+          <span class="letter2 pl10" style="color:#999;font-size:12px">当前 {{ volumeValue }}</span>
+        </div>
+        <div style="padding-left: 10px" touch-action="none">
+          <a-slider
+              :step="1"
+              :min="0"
+              :max="100"
+              @change="onVolumeSlider"
+              :value="volumeValue"
+          />
+        </div>
+      </a-col>
+    </a-row>
+
+    <a-row type="flex" justify="space-between" align="middle" class="pb5 pt10 mt20">
+      <a-col :span="24">
+        <div class="text-lf">
+          <span class="fweight-bold letter2 pl5">播放速度</span>
           <span class="letter2 pl10" style="color:#999;font-size:12px">{{ rateValue }} 倍速</span>
         </div>
         <div style="padding-left: 10px" touch-action="none">
@@ -118,29 +135,10 @@
       </a-col>
     </a-row>
 
-    <a-row type="flex" justify="space-between" align="middle" class="pb5 pt10 mt20">
-      <a-col :span="24">
-        <div class="text-lf">
-          <span class="fweight-bold letter2 pl5">播放音量 (rate)</span>
-          <span class="letter2 pl10" style="color:#999;font-size:12px">当前 {{ volumeValue }}</span>
-        </div>
-        <div style="padding-left: 10px" touch-action="none">
-          <a-slider
-              :step="1"
-              :min="1"
-              :max="100"
-              @change="onVolumeSlider"
-              :included="false"
-              :value="volumeValue"
-          />
-        </div>
-      </a-col>
-    </a-row>
-
     <a-row type="flex" justify="space-between" align="middle" class="pb5 pt20">
       <a-col :span="24">
         <div class="text-lf">
-          <span class="text-lf fweight-bold letter2 pl5">音调调整 (pitch)</span>
+          <span class="text-lf fweight-bold letter2 pl5">音调调整</span>
           <span class="letter2 pl10" style="color:#999;font-size:12px">当前{{ pitchValue }}</span>
         </div>
         <div style="padding-left: 10px" touch-action="none">
@@ -156,13 +154,6 @@
         </div>
       </a-col>
     </a-row>
-
-    <!--    <a-row type="flex" justify="space-between" align="middle" class="pb10">-->
-    <!--      <a-col class="flex-wrap">-->
-    <!--        <p class="text-lf fweight-bold letter2 pl5 pb10" style="margin-right:10px;">开启录音 (record)</p>-->
-    <!--        <a-switch :checked="recordStatus" @change="onChange"/>-->
-    <!--      </a-col>-->
-    <!--    </a-row>-->
     <a class="link" href="https://github.com/demojameson/ReadAloud">查看 Github 项目源码</a>
   </div>
 </template>
@@ -310,23 +301,8 @@ function optimizeDanmu(message) {
   })
 }
 
-// if (navigator.serviceWorker) {
-//   navigator.serviceWorker.register('./sw.js')
-//   .then(resolve =>{
-//     console.log('⛳️ -> sw注册成功!');
-//   }, reject => {
-//     console.log(reject)
-//   })
-
-// }
-
 export default {
   name: "Home",
-  components: {
-    // AButton: Button,
-    // ASlider: Slider,
-    // ASelect: Select
-  },
   data() {
     return {
       voices: [],
@@ -486,7 +462,7 @@ export default {
         clearInterval(intervalId);
       }
       let roomId = this.roomId.replace("https://live.bilibili.com/", "");
-      let biliApi = encodeURIComponent(`http://api.live.bilibili.com/room/v1/Room/room_init?id=${roomId}`);
+      let biliApi = encodeURIComponent(`https://api.live.bilibili.com/room/v1/Room/room_init?id=${roomId}`);
       fetch(`https://json2jsonp.com/?url=${biliApi}&callback=result`).then(function (response) {
         return response.text();
       }).then(jsonp => {
@@ -501,6 +477,9 @@ export default {
           }), 7));
           console.log("connect roomid: " + roomId);
           this.speak("连接房间：" + roomId);
+          if (!body.data.live_status) {
+            this.speak("主播正在摸鱼");
+          }
         };
         intervalId = setInterval(function () {
           ws.send(encode('', 2));
@@ -509,7 +488,7 @@ export default {
           const packet = await decode(msgEvent.data);
           switch (packet.op) {
             case 8:
-              console.log('加入房间');
+              console.log('ws.onmessage：加入房间');
               break;
             case 3:
               // eslint-disable-next-line no-case-declarations
@@ -657,11 +636,15 @@ export default {
 
       this.readTextLog = `${new Date().toLocaleTimeString()}\t${text}\n${this.readTextLog}`;
 
+      if (volumeValue === 0) {
+        return;
+      }
+
       utterance = new SpeechSynthesisUtterance(text);
-      utterance.onstart = function (event) {
+      utterance.onstart = () => {
         console.log(`SpeechSynthesisUtterance.onstart: ${text}`);
       };
-      utterance.onerror = function (event) {
+      utterance.onerror = () => {
         console.error(`SpeechSynthesisUtterance.onerror: ${text}`);
       };
       utterance.voice = voices[selectIdx]; // 设置语音引擎

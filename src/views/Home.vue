@@ -513,9 +513,21 @@ export default {
                     // 普通弹幕
                     if (this.readDanmu) {
                       let userName = msg.info[2][1].replace(/_*bili_*/g, "");
+
+                      // 固定我和串串的用户名（她的名字太长了）
+                      // TODO: 增加一个文本框配置自定义用户名
+                      let userId = msg.info[2][0];
+                      if (userId === 12695494) {
+                        userName = "串串";
+                      } else if (userId === 21222) {
+                        userName = "DJ";
+                      }
+
+                      console.log(msg.info[2]);
                       let message = msg.info[1];
                       let text = `${userName}说: ${message}`;
                       if (this.readRate >= Math.round(Math.random() * 100)) {
+                        // TODO: 增加一个文本框配置过滤词汇
                         if (filterDanmu(message)) {
                           console.log(`无意义被过滤的弹幕：${text}`);
                         } else {
